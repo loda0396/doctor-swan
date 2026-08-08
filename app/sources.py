@@ -138,8 +138,10 @@ OFFICIAL = [
     # ---- 欧盟。presscorner 是唯一把新闻稿/表态/每日简报都塞进一个 RSS 的 ----
     dict(id="ec", name="欧委会", bloc="EU", kind="rss", lang="en", top_n=20, status="ok",
          url="https://ec.europa.eu/commission/presscorner/api/rss"),
-    dict(id="ep", name="欧洲议会", bloc="EU", kind="rss", lang="en", top_n=10, status="unverified",
-         url="https://www.europarl.europa.eu/rss/doc/top-stories/en.xml"),
+    # 欧洲议会：从 GitHub 的美国 IP 访问返回空 feed（本地能拿到 10 条）。
+    # 同一个地址对不同来源返回不同内容，这类源不可靠，删。
+    # 欧洲这两格由欧委会 presscorner 撑着——它覆盖 press release、statement、
+    # Daily News、speech，本来就是欧盟侧信息量最大的一个口子。
 ]
 
 # ---------------------------------------------------------------- 观点栏 ----
@@ -178,8 +180,9 @@ VOICES = [
          url="https://www.lawfaremedia.org/feeds/articles"),   # 美国法律与国安
     dict(id="warontherocks", name="War on the Rocks", kind="rss", top_n=3, status="ok",
          url="https://warontherocks.com/feed/"),        # 防务与地缘
-    dict(id="bruegel",     name="Bruegel",        kind="rss", top_n=3, status="ok",
-         url="https://www.bruegel.org/rss.xml"),        # 欧盟经济政策
+    # Bruegel 和 The Long Game 都被 Cloudflare 那类防护拦在数据中心 IP 之外，
+    # 补 header 没用（它看的是 TLS 指纹，不是请求头）。要绕只能上无头浏览器，
+    # 不值得。ECFR 覆盖欧盟政策，Lawfare 和 President's Inbox 覆盖前官员视角。
     dict(id="ecfr",        name="ECFR",           kind="rss", top_n=3, status="ok",
          url="https://ecfr.eu/feed/"),                  # 欧盟外交政策
 
@@ -192,13 +195,8 @@ VOICES = [
     # 「本周西方精英选择讨论的议题清单」，比任何摘要都直接。
     # top_n 给 2 就够，周更节目多了会刷屏。
     #
-    # The Long Game —— 沙利文（拜登国安顾问）与 Jon Finer（其常务副手）主持，
-    # 周更，Vox Media 出品，2026 年 6 月开播。
-    # 选它的理由不是名气，是**位置**：这两人每天旁听机密总统每日简报。
-    # 不是评论员在外面猜，是坐过那个房间的人在讲这事该怎么看。
-    # 走 Substack 的 feed，免费拿标题；音频要订阅，但标题足够判断议题。
-    dict(id="longgame", name="The Long Game", kind="rss", top_n=3, status="unverified",
-         url="https://thelonggame.substack.com/feed"),
+    # The Long Game（沙利文 + Jon Finer）—— 位置极好但 Substack 拦数据中心 IP。
+    # 如果哪天想要，只能在本地跑。地址：thelonggame.substack.com/feed
 
     # —— 以下地址是推测，跑 check 验证。挂了的要么修要么删，别留着。——
     dict(id="platformer", name="Platformer", kind="rss", top_n=3, status="unverified",
