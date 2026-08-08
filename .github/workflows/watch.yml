@@ -1,0 +1,48 @@
+name: doctor-swan
+
+on:
+  schedule:
+    # UTC。GitHub 的定时不保证准点，高峰期会延迟几分钟到半小时，能接受。
+    - cron: '0,30 * * * *'
+  workflow_dispatch:        # 也可以在网页上手动点一次
+
+permissions:
+  contents: write           # 需要写权限，因为要把数据库和页面提交回来
+
+concurrency:
+  group: watch              # 上一轮没跑完就不开下一轮，避免两个进程同时写库
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install --quiet feedparser beautifulsoup4
+
+      - name: 采集 · 翻译 · 生成
+        working-directory: app
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # 加 || true：某个源挂掉不该让整轮失败。
+          # 单源的失败在日志里看得到，但页面该照常出。
+          python collect.py run --no-x || true
+          python enrich.py || true
+          python build.py --hours 3
+
+      - name: 发布
+        run: |
+          cp app/dashboard.html index.html
+          git config user.name  "doctor-swan"
+          git config user.email "actions@github.com"
+          git add index.html app/watch.db
+          # 没变化时 commit 会失败，用 || true 让整个 job 仍然算成功
+          git diff --staged --quiet || git commit -m "update $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
