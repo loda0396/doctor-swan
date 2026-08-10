@@ -53,7 +53,7 @@ MEDIA = [
     # SCMP 亮着而其他十家都空，不等于"世界在关注"，等于"只有香港在关注"。
     # 备用地址：https://www.scmp.com/rss/4/feed（综合新闻）
     dict(paywall="metered", id="scmp", name="SCMP", seat=7, kind="rss", lang="en",
-         top_n=8, status="unverified", url="https://www.scmp.com/rss/91/feed"),
+         top_n=8, status="unverified", url="https://www.scmp.com/rss/318198/feed"),
 
     # 第 12 席：快讯型。Axios 报了才说明议题进入了华盛顿的日常对话——
     # NYT 报了只说明它重要，Axios 报了说明它已经在被谈论。这是"破圈"的指标。
