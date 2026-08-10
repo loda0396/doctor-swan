@@ -558,15 +558,15 @@ def build(db_path=DB, hours=24, out=OUT):
 </section>
 
 <section>
-<h2>官方发布</h2>
-{official_note}
-{render_official(official)}
-</section>
-
-<section>
 <h2>财联社快讯</h2>
 <p class="note">中文财经快讯，滚动。速度是它的价值——不进席位表，不参与共识计算。</p>
 {render_ticker(ticker)}
+</section>
+
+<section>
+<h2>官方发布</h2>
+{official_note}
+{render_official(official)}
 </section>
 
 </main>
