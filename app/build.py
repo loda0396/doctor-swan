@@ -264,6 +264,9 @@ section+section{margin-top:44px}
   padding-top:2px;min-width:34px}
 .tick a{color:var(--ink);text-decoration:none}
 .tick a:hover{color:var(--cn)}
+/* 陈旧标记：越久越暗，但不用红色——"三天没发布"是常态不是故障 */
+.age{margin-left:7px;padding:1px 5px;border:1px solid var(--line2);border-radius:2px;
+  color:var(--faint);font-size:9px}
 .empty{color:var(--faint);font-size:12.5px}
 @media (max-width:980px){.layout{grid-template-columns:1fr}
   .rail{position:static;max-height:none;margin-top:38px}}
@@ -433,6 +436,16 @@ def render_official(items):
         badge = kind if kind in ("Rule", "Notice", "Proposed Rule",
                                  "Presidential Document") else ""
         date = when(it)[:10]
+        # "这栏三天不动"到底是没发生还是抓不到？现在一眼能分。
+        # 分不清这两者的代价很高——你会怀疑系统，然后只能去查数据库。
+        age = ""
+        try:
+            d = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            days = (datetime.now(timezone.utc) - d).days
+            if days >= 2:
+                age = f'<span class="age">{days} 天前</span>'
+        except ValueError:
+            pass
         return (card_open(r1, r2)
                 + '<div class="tags">' + region_tags(r1, r2)
                 + f'<span class="tag b">{esc(it["source_name"])}</span>'
@@ -441,7 +454,7 @@ def render_official(items):
                   f'{esc(zh_of(it))}</a></p>'
                 + (f'<p class="orig">{esc(it["title"])}</p>'
                    if zh_of(it) != it["title"] else "")
-                + f'<div class="foot"><span>{date}</span>'
+                + f'<div class="foot"><span>{date}{age}</span>'
                   f'<a href="{esc(it["url"])}" target="_blank" rel="noopener">查看原文 ↗</a></div>'
                 + '</article>')
 
@@ -648,7 +661,9 @@ def demo():
          ("ec", "欧委会", "EU", "Commission opens consultation on critical raw materials stockpiling",
           "欧委会就关键原材料储备启动咨询", "EU", None, "", "web"),
          ("ep", "欧洲议会", "EU", "Parliament backs tougher screening of foreign investment",
-          "议会支持收紧外国投资审查", "EU", "CN", "", "web")]
+          "议会支持收紧外国投资审查", "EU", "CN", "", "web"),
+         ("wh", "白宫", "US", "Nominations Sent to the Senate",
+          "提名已送交参议院", "US", None, "", "web")]
 
     v = [("x_POTUS", "美国总统", "We will not allow this to stand.",
           "我们不会容许此事就这样过去。", "US", None, "@POTUS"),
@@ -667,10 +682,11 @@ def demo():
                          url="https://example.com", summary=h, lang="en",
                          published=now[:16], rank=0))
     for sid, name, bloc, t, zh, r1, r2, tag, ch in o:
+        pub = "2026-08-04" if sid == "wh" else now[:10]   # 造一条旧的，验证陈旧标记
         rows.append(dict(id=collect.item_id(sid, None, t), layer="official", channel=ch,
                          source_id=sid, source_name=name, seat=None, bloc=bloc, title=t,
                          url="https://example.com", summary=tag, lang="en",
-                         published=now[:10], rank=0))
+                         published=pub, rank=0))
     collect.save(con, rows, now)
     # 补上假的译文和地区
     for sid, name, seat, t, zh, r1, r2, rank in m:
