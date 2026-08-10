@@ -23,7 +23,9 @@ from sources import MEDIA, VOICES, OFFICIAL, TICKER
 
 DB, OUT = "watch.db", "dashboard.html"
 
-MEDIA_SLOTS = 10                                    # 媒体关注固定几格
+# 格子数跟席位数走。写死 10 而实际只有 9 席时，第十格永远靠补位卡撑着——
+# 那一格从设计上就注定是填充物，不是信号。
+MEDIA_SLOTS = len(MEDIA)
 # 官方发布：按发布方分名额。中美各 3 格才装得下"贸易+外交+关税"三条线，
 # 2 格的话每天最新两条一压，其余全看不见。数字随时可改。
 OFFICIAL_QUOTA = [("CN", 3), ("US", 3), ("EU", 2)]
