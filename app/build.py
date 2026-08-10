@@ -19,7 +19,13 @@ import html
 import sqlite3
 from datetime import datetime, timezone, timedelta
 
+from zoneinfo import ZoneInfo
+
 from sources import MEDIA, VOICES, OFFICIAL, TICKER
+
+# 页面上所有时间都按这个时区显示。数据库里一律存 UTC，只在渲染时换算。
+# 之前页头和快讯栏直接显示 UTC，在布鲁塞尔看会以为系统滞后了两小时。
+LOCAL_TZ = ZoneInfo("Europe/Brussels")
 
 DB, OUT = "watch.db", "dashboard.html"
 
@@ -492,13 +498,24 @@ def render_official(items):
     return f'<div class="grid">{"".join(out)}</div>'
 
 
+def local_hm(iso):
+    """UTC 时间串 → 布鲁塞尔时间的 HH:MM。解析不了就原样截取，不丢数据。"""
+    try:
+        d = datetime.fromisoformat(iso)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return d.astimezone(LOCAL_TZ).strftime("%H:%M")
+    except (ValueError, TypeError):
+        return (iso or "")[11:16]
+
+
 def render_ticker(items):
     if not items:
         return '<p class="empty">快讯带还没有数据。先跑 scrape.py probe cls 配 link_pat。</p>'
     items = sorted(items, key=when, reverse=True)
     out = []
     for it in items[:30]:
-        t = (it.get("published") or it["first_seen"])[11:16] or when(it)[5:10]
+        t = local_hm(it.get("published") or it["first_seen"])
         out.append(f'<div class="tick"><time>{esc(t)}</time>'
                    f'<a href="{esc(it["url"])}" target="_blank" rel="noopener">'
                    f'{esc(zh_of(it))}</a></div>')
@@ -535,7 +552,7 @@ def build(db_path=DB, hours=24, out=OUT):
     voices = load(con, "voice", hours)
     ticker = load(con, "ticker", hours)
     con.close()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    now = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M")
     live = len({m["source_id"] for m in media})
     todo = sum(1 for i in media + official + voices if not i.get("title_zh"))
     media_html, n_con, n_solo = render_media(media)
@@ -569,7 +586,7 @@ def build(db_path=DB, hours=24, out=OUT):
       <h1>Doctor <em>Swan</em></h1>
     </div>
   </div>
-  <span class="stamp">{now} · 媒体 {MEDIA_WINDOW_H}h · 快讯 {int(TICKER_WINDOW_H*60)}min · 席位 {live}/{len(SEATS)}
+  <span class="stamp">{now} 布鲁塞尔 · 媒体 {MEDIA_WINDOW_H}h · 快讯 {int(TICKER_WINDOW_H*60)}min · 席位 {live}/{len(SEATS)}
     {f"· 待译 {todo}" if todo else ""}</span>
 </header>
 
