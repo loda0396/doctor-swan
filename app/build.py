@@ -37,7 +37,10 @@ PW_LABEL = {"hard": "付费墙", "metered": "限次"}
 # 只显示当前配置里还留着的源。删掉的源，历史数据还在库里，但不该再出现。
 LIVE_IDS = ({m["id"] for m in MEDIA} | {o["id"] for o in OFFICIAL}
             | {v["id"] for v in VOICES} | {t["id"] for t in TICKER})
-VOICE_WINDOW_H = 24 * 7   # 观点栏用一周窗口：周更的 newsletter 在 3 小时里必然为空
+# 四层的时间尺度完全不同，用同一个窗口是错的：
+VOICE_WINDOW_H  = 24 * 7   # 观点：周更的 newsletter，一周窗口
+MEDIA_WINDOW_H  = 48       # 媒体：48 小时上限，过期的头条只是噪音
+TICKER_WINDOW_H = 0.5      # 快讯：30 分钟，它的全部价值就是"刚刚"
 
 REGION = {
     "CN":    dict(label="中", color="#E0524A"),
@@ -113,9 +116,15 @@ def load(con, layer, hours):
            "published,rank,first_seen") + ("," + extra if extra else "")
 
     if layer == "official":
+        # 官方层不设窗口。它回答的是"各方最新立场是什么"，不是"最近发生了什么"。
+        # 外交部上一条谈话答问可能是三周前，但只要没发新的，那就仍是当前状态。
+        # 设上限会让中国那几格经常空着，你会误读成"中方没动静"。
+        # 陈旧用标记表达（"23 天前"），不用消失表达。
         q, args = f"SELECT {sel} FROM items WHERE layer=?", ("official",)
     else:
-        h = VOICE_WINDOW_H if layer == "voice" else float(hours)
+        h = {"voice": VOICE_WINDOW_H,
+             "media": MEDIA_WINDOW_H,
+             "ticker": TICKER_WINDOW_H}.get(layer, float(hours))
         since = (datetime.now(timezone.utc) - timedelta(hours=h)).isoformat()
         field = "last_seen" if "last_seen" in cols else "first_seen"
         q = f"SELECT {sel} FROM items WHERE layer=? AND COALESCE({field}, first_seen) >= ?"
@@ -442,7 +451,7 @@ def render_official(items):
         try:
             d = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             days = (datetime.now(timezone.utc) - d).days
-            if days >= 2:
+            if days >= 1:
                 age = f'<span class="age">{days} 天前</span>'
         except ValueError:
             pass
@@ -550,7 +559,7 @@ def build(db_path=DB, hours=24, out=OUT):
       <h1>Doctor <em>Swan</em></h1>
     </div>
   </div>
-  <span class="stamp">{now} · 过去 {(f"{int(hours*60)}min" if hours < 1 else f"{hours:g}h")} · 席位 {live}/{len(SEATS)}
+  <span class="stamp">{now} · 媒体 {MEDIA_WINDOW_H}h · 快讯 {int(TICKER_WINDOW_H*60)}min · 席位 {live}/{len(SEATS)}
     {f"· 待译 {todo}" if todo else ""}</span>
 </header>
 
