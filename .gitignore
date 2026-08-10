@@ -3,3 +3,4 @@ app/demo.html
 app/run.log
 app/.env
 app/.x_ids.json
+app/__pycache__/
