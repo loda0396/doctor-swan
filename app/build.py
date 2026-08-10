@@ -19,7 +19,7 @@ import html
 import sqlite3
 from datetime import datetime, timezone, timedelta
 
-from sources import MEDIA, VOICES, OFFICIAL
+from sources import MEDIA, VOICES, OFFICIAL, TICKER
 
 DB, OUT = "watch.db", "dashboard.html"
 
@@ -34,7 +34,7 @@ PAYWALL = {x["id"]: x["paywall"] for x in MEDIA + VOICES if x.get("paywall")}
 PW_LABEL = {"hard": "付费墙", "metered": "限次"}
 # 只显示当前配置里还留着的源。删掉的源，历史数据还在库里，但不该再出现。
 LIVE_IDS = ({m["id"] for m in MEDIA} | {o["id"] for o in OFFICIAL}
-            | {v["id"] for v in VOICES})
+            | {v["id"] for v in VOICES} | {t["id"] for t in TICKER})
 VOICE_WINDOW_H = 24 * 7   # 观点栏用一周窗口：周更的 newsletter 在 3 小时里必然为空
 
 REGION = {
@@ -251,6 +251,17 @@ section+section{margin-top:44px}
 .alt a{color:inherit;text-decoration:none}
 .alt a:hover{color:var(--ink)}
 
+/* 快讯带：紧挨官方发布，同是"发生了什么"，但频率高一个量级，
+   所以给窄条不给卡片，密度换视觉重量。 */
+.ticker{border-left:3px solid var(--cn);background:var(--card);border-radius:0 4px 4px 0;
+  max-height:290px;overflow-y:auto;scrollbar-width:thin}
+.tick{display:flex;gap:10px;padding:7px 12px;border-bottom:1px solid var(--line);
+  font-size:12.5px;line-height:1.4}
+.tick:last-child{border-bottom:none}
+.tick time{font-family:var(--mono);font-size:9.5px;color:var(--faint);flex:none;
+  padding-top:2px;min-width:34px}
+.tick a{color:var(--ink);text-decoration:none}
+.tick a:hover{color:var(--cn)}
 .empty{color:var(--faint);font-size:12.5px}
 @media (max-width:980px){.layout{grid-template-columns:1fr}
   .rail{position:static;max-height:none;margin-top:38px}}
@@ -447,6 +458,19 @@ def render_official(items):
     return f'<div class="grid">{"".join(out)}</div>'
 
 
+def render_ticker(items):
+    if not items:
+        return '<p class="empty">快讯带还没有数据。先跑 scrape.py probe cls 配 link_pat。</p>'
+    items = sorted(items, key=when, reverse=True)
+    out = []
+    for it in items[:30]:
+        t = (it.get("published") or it["first_seen"])[11:16] or when(it)[5:10]
+        out.append(f'<div class="tick"><time>{esc(t)}</time>'
+                   f'<a href="{esc(it["url"])}" target="_blank" rel="noopener">'
+                   f'{esc(zh_of(it))}</a></div>')
+    return f'<div class="ticker">{"".join(out)}</div>'
+
+
 def render_voices(items):
     if not items:
         return '<p class="empty">还没有观点条目。名单填进 sources.py 的 VOICES。</p>'
@@ -475,6 +499,7 @@ def build(db_path=DB, hours=24, out=OUT):
     con = sqlite3.connect(db_path)
     media, official = load(con, "media", hours), load(con, "official", hours)
     voices = load(con, "voice", hours)
+    ticker = load(con, "ticker", hours)
     con.close()
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     live = len({m["source_id"] for m in media})
@@ -536,6 +561,12 @@ def build(db_path=DB, hours=24, out=OUT):
 <h2>官方发布</h2>
 {official_note}
 {render_official(official)}
+</section>
+
+<section>
+<h2>财联社快讯</h2>
+<p class="note">中文财经快讯，滚动。速度是它的价值——不进席位表，不参与共识计算。</p>
+{render_ticker(ticker)}
 </section>
 
 </main>

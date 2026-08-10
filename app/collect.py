@@ -15,6 +15,7 @@
 import os
 import re
 import sys
+import time
 import json
 import sqlite3
 import hashlib
@@ -25,7 +26,7 @@ from datetime import datetime, timezone
 
 import feedparser
 
-from sources import MEDIA, OFFICIAL, VOICES, X_ACCOUNTS, X_TOP_N
+from sources import MEDIA, OFFICIAL, VOICES, TICKER, X_ACCOUNTS, X_TOP_N
 
 DB = "watch.db"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) newsroom-watch/0.2"
@@ -100,7 +101,16 @@ def save(con, rows, snapshot):
 
 
 def _get(url, headers=None, timeout=25):
-    h = {"User-Agent": UA}
+    # 从 GitHub Actions（美国数据中心 IP）访问时，部分站点会拒绝看起来像
+    # 脚本的请求。补齐浏览器会发的那几个头，能过掉一部分简单的检查。
+    # 过不掉的（Cloudflare 那类看 TLS 指纹的）只能认，别硬钻。
+    h = {
+        "User-Agent": UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache",
+    }
     if headers:
         h.update(headers)
     req = urllib.request.Request(url, headers=h)
@@ -191,6 +201,52 @@ def fetch_weibo(src, layer):
     return rows
 
 
+CLS_API = "https://www.cls.cn/v1/roll/get_roll_list"
+
+
+def fetch_cls(src, layer):
+    """财联社电报。页面是纯前端渲染，静态爬虫抓不到，走它自己的后端接口。
+
+    接口有签名，但算法是固定的：md5(sha1(参数按键名排序后拼接))，
+    没有盐也没有密钥。所以可以自己算，用当前时间戳取最新的一批。
+    （抓到的 sign 是绑死参数的，直接复用只能永远拿到那一刻的 20 条。）
+
+    这个签名方式随时可能被改。哪天返回 errno != 0，先怀疑这里。
+    """
+    params = {
+        "app": "CailianpressWeb",
+        "last_time": str(int(time.time())),
+        "os": "web",
+        "refresh_type": "1",
+        "rn": str(src.get("top_n", 20)),
+        "sv": "8.7.9",
+    }
+    raw = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+    params["sign"] = hashlib.md5(
+        hashlib.sha1(raw.encode()).hexdigest().encode()).hexdigest()
+
+    url = f"{CLS_API}?{urllib.parse.urlencode(sorted(params.items()))}"
+    data = json.loads(_get(url, {"Referer": "https://www.cls.cn/telegraph"}).decode("utf-8"))
+    if data.get("errno"):
+        raise RuntimeError(f"财联社接口返回 errno={data['errno']}，签名算法可能变了")
+
+    rows = []
+    for i, x in enumerate(data.get("data", {}).get("roll_data") or []):
+        title = (x.get("title") or x.get("content") or "").strip()
+        if not title:
+            continue
+        ts = x.get("ctime")
+        rows.append(dict(
+            id=item_id(src["id"], x.get("shareurl") or str(x.get("id")), title),
+            layer=layer, channel="web", source_id=src["id"], source_name=src["name"],
+            bloc=src.get("bloc"), title=title[:200],
+            url=x.get("shareurl") or f"https://www.cls.cn/detail/{x.get('id')}",
+            summary="", lang="zh",
+            published=datetime.fromtimestamp(ts, timezone.utc).isoformat() if ts else None,
+            rank=i))
+    return rows
+
+
 def fetch(src, layer):
     k = src["kind"]
     if k == "rss":
@@ -199,6 +255,8 @@ def fetch(src, layer):
         return fetch_federal_register(src, layer)
     if k == "weibo":
         return fetch_weibo(src, layer)
+    if k == "cls":
+        return fetch_cls(src, layer)
     if k == "scrape":
         import scrape
         rows = []
@@ -294,7 +352,8 @@ def cmd_check():
     print("-" * 80)
     dead = []
     voice_rss = [v for v in VOICES if v["kind"] == "rss"]
-    for layer, group in (("media", MEDIA), ("official", OFFICIAL), ("voice", voice_rss)):
+    for layer, group in (("media", MEDIA), ("official", OFFICIAL),
+                         ("voice", voice_rss), ("ticker", TICKER)):
         for src in group:
             try:
                 rows = fetch(src, layer)
@@ -332,7 +391,8 @@ def cmd_run(with_x=True):
     con = db()
     total = 0
     voice_rss = [v for v in VOICES if v["kind"] == "rss"]
-    for layer, group in (("media", MEDIA), ("official", OFFICIAL), ("voice", voice_rss)):
+    for layer, group in (("media", MEDIA), ("official", OFFICIAL),
+                         ("voice", voice_rss), ("ticker", TICKER)):
         for src in group:
             try:
                 rows = fetch(src, layer)
@@ -359,7 +419,7 @@ def cmd_run(with_x=True):
 
 def cmd_stats():
     con = db()
-    for layer in ("media", "official", "voice"):
+    for layer in ("media", "official", "voice", "ticker"):
         n = con.execute("SELECT COUNT(*) FROM items WHERE layer=?", (layer,)).fetchone()[0]
         print(f"{layer:<10}{n} 条")
     print()

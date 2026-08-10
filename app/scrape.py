@@ -27,7 +27,9 @@ UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " \
 def get(url, timeout=30):
     req = urllib.request.Request(url, headers={
         "User-Agent": UA,
-        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept-Encoding": "identity",
     })
     raw = urllib.request.urlopen(req, timeout=timeout).read()
     # 政府站常见 utf-8 / gb18030 混用，试两次
@@ -95,8 +97,8 @@ def fetch_scrape(src, layer):
 
 
 def _find(sid):
-    from sources import MEDIA, OFFICIAL, VOICES
-    for s in MEDIA + OFFICIAL + VOICES:
+    from sources import MEDIA, OFFICIAL, VOICES, TICKER
+    for s in MEDIA + OFFICIAL + VOICES + TICKER:
         if s["id"] == sid:
             return s
     raise SystemExit(f"sources.py 里没有 id={sid}")

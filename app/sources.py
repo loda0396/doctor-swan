@@ -29,37 +29,35 @@ BLOC = {
 MEDIA = [
     dict(id="bbc",      name="BBC",        seat=0, kind="rss", lang="en", top_n=8, status="ok",
          url="https://feeds.bbci.co.uk/news/world/rss.xml"),
-    dict(id="guardian", name="Guardian",   seat=1, kind="rss", lang="en", top_n=8, status="ok",
-         url="https://www.theguardian.com/world/rss"),
+    # /world/rss 是次级栏目：更新稀疏（一天两三条），且重大国际新闻不走这个口。
+    # 2026-08-09 全网都在报以色列拒绝加沙和平计划，这个 feed 一条都没有，
+    # 抓到的全是软新闻。等于这个席位一直在投废票，系统性压低共识组数。
+    # 改用国际版首页 feed。
+    dict(id="guardian", name="Guardian",   seat=1, kind="rss", lang="en", top_n=8,
+         status="unverified", url="https://www.theguardian.com/international/rss"),
     dict(paywall="hard", id="nyt",      name="NYT",        seat=2, kind="rss", lang="en", top_n=8, status="ok",
          url="https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"),
+    # 这个 feed 一直只返回 4 条，其他家都是 8 条 —— 同样可疑，先记着。
     dict(paywall="hard", id="wapo",     name="WaPo",       seat=3, kind="rss", lang="en", top_n=8, status="unverified",
          url="https://feeds.washingtonpost.com/rss/world"),
-    dict(paywall="hard", id="wsj",      name="WSJ",        seat=4, kind="rss", lang="en", top_n=8, status="unverified",
-         url="https://feeds.a.dj.com/rss/RSSWorldNews.xml"),
-    dict(paywall="hard", id="ft",       name="FT",         seat=5, kind="rss", lang="en", top_n=8, status="unverified",
+    dict(paywall="hard", id="ft",       name="FT",         seat=4, kind="rss", lang="en", top_n=8, status="unverified",
          url="https://www.ft.com/rss/home"),
-    dict(paywall="hard", id="economist", name="Economist", seat=6, kind="rss", lang="en", top_n=8, status="unverified",
-         url="https://www.economist.com/international/rss.xml"),
     # 英文版，不是法文版 —— 为了能跟其他席位聚类
-    dict(paywall="metered", id="lemonde",  name="Le Monde",   seat=7, kind="rss", lang="en", top_n=8, status="unverified",
+    dict(paywall="metered", id="lemonde",  name="Le Monde",   seat=5, kind="rss", lang="en", top_n=8, status="unverified",
          url="https://www.lemonde.fr/en/rss/une.xml"),
-    # Spiegel International 本身就是英文
-    dict(id="spiegel",  name="Spiegel",    seat=8, kind="rss", lang="en", top_n=8, status="unverified",
-         url="https://www.spiegel.de/international/index.rss"),
     # 你在布鲁塞尔，这一席比再加一家美国报纸有用
-    dict(id="politico", name="POLITICO EU", seat=9, kind="rss", lang="en", top_n=8, status="ok",
+    dict(id="politico", name="POLITICO EU", seat=6, kind="rss", lang="en", top_n=8, status="ok",
          url="https://www.politico.eu/feed/"),
     # 第 11 席。注意：加了 SCMP 之后，这张席位表就不纯是"西方主流"了——
     # 它常常先于西方媒体报中国相关的事。这是优点，但读席位条时要记得：
     # SCMP 亮着而其他十家都空，不等于"世界在关注"，等于"只有香港在关注"。
     # 备用地址：https://www.scmp.com/rss/4/feed（综合新闻）
-    dict(paywall="metered", id="scmp", name="SCMP", seat=10, kind="rss", lang="en",
+    dict(paywall="metered", id="scmp", name="SCMP", seat=7, kind="rss", lang="en",
          top_n=8, status="unverified", url="https://www.scmp.com/rss/91/feed"),
 
     # 第 12 席：快讯型。Axios 报了才说明议题进入了华盛顿的日常对话——
     # NYT 报了只说明它重要，Axios 报了说明它已经在被谈论。这是"破圈"的指标。
-    dict(id="axios", name="Axios", seat=11, kind="rss", lang="en", top_n=8,
+    dict(id="axios", name="Axios", seat=8, kind="rss", lang="en", top_n=8,
          status="unverified", url="https://api.axios.com/feed/"),
 
     # 13–15 席：三大通讯社。都没有官方 RSS（网上能搜到的全是第三方生成器，
@@ -234,6 +232,26 @@ VOICES = [
     # Money Stuff（Matt Levine）没有公开 RSS —— 彭博几年前就关了，
     # 网上流传的都是第三方镜像，稳定性和合规都不行。只能订阅邮件，不配。
 ]
+
+# ---------------------------------------------------------------- 快讯带 ----
+# 财联社。中文财经快讯，速度是它的全部价值——比中文官媒早，比英文媒体早得多。
+#
+# 单独成一层，不进席位表。理由：中文标题跟英文在词汇层面配不上对，
+# 放进共识计算就是一张永远的废票（跟 Guardian/WSJ 一个性质）。
+# 它要回答的问题不是"几家同时在报"，是"中国财经侧刚刚发生了什么"。
+#
+# 展示位置：官方发布下面一条窄滚动带。节奏跟官方通报同类（都是"发生了什么"），
+# 但频率高一个量级，所以给它自己的空间，不跟八格卡片抢视觉。
+#
+# 页面是纯前端渲染，静态爬虫抓不到（probe 只返回三个页脚备案号链接）。
+# 走它自己的后端接口 /v1/roll/get_roll_list。接口有签名，但算法是
+# md5(sha1(参数按键排序拼接))，无盐无密钥，可以自己算——见 collect.py。
+
+TICKER = [
+    dict(id="cls", name="财联社", bloc="CN", kind="cls", lang="zh", top_n=20,
+         status="ok"),
+]
+
 
 # ---- X 账号 ----
 X_ACCOUNTS = [
