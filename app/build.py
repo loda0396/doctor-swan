@@ -126,8 +126,18 @@ def load(con, layer, hours):
              "media": MEDIA_WINDOW_H,
              "ticker": TICKER_WINDOW_H}.get(layer, float(hours))
         since = (datetime.now(timezone.utc) - timedelta(hours=h)).isoformat()
-        field = "last_seen" if "last_seen" in cols else "first_seen"
-        q = f"SELECT {sel} FROM items WHERE layer=? AND COALESCE({field}, first_seen) >= ?"
+
+        if layer == "ticker":
+            # 快讯按**发布时间**筛，不按 last_seen。
+            # 财联社每次返回最新 20 条，12 点那条只要还在这 20 条里，
+            # last_seen 就一直被刷新，会永远赖在 30 分钟窗口里。
+            # 窗口要问的是"它什么时候发生"，不是"我们什么时候看到它"。
+            q = f"SELECT {sel} FROM items WHERE layer=? AND published >= ?"
+        else:
+            # 媒体相反：要的是"过去 N 小时它还挂在人家首页上"，所以看 last_seen。
+            field = "last_seen" if "last_seen" in cols else "first_seen"
+            q = (f"SELECT {sel} FROM items WHERE layer=? "
+                 f"AND COALESCE({field}, first_seen) >= ?")
         args = (layer, since)
 
     cur = con.execute(q + " ORDER BY first_seen DESC, rank ASC", args)
