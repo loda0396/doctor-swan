@@ -440,7 +440,12 @@ def render_media(items):
     out = []
     for g in consensus:
         ids = {i["source_id"] for i in g}
-        lead = min(g, key=lambda i: i["rank"])
+        # 代表条目取**最新的**，不取 rank 最小的。
+        # 一个持续滚动的议题（比如加沙），各家会不断跟进新稿，但如果拿
+        # rank 最小的当代表，昨天那条会一直挂在卡片上——内容在更新，
+        # 标题却纹丝不动，看起来就像系统卡住了。
+        # rank 只用来在同样新的条目里挑更靠前的。
+        lead = min(g, key=lambda i: (round(hours_ago(i)), i["rank"]))
         alt = "".join(
             f'<li><span class="s">{esc(o["source_name"])}</span>'
             f'<a href="{esc(o["url"])}" target="_blank" rel="noopener">{esc(zh_of(o))}</a></li>'
