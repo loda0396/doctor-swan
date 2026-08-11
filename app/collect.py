@@ -22,7 +22,7 @@ import hashlib
 import urllib.request
 import urllib.parse
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import feedparser
 
@@ -67,6 +67,25 @@ def db():
     con.execute("CREATE INDEX IF NOT EXISTS idx_last ON items(layer, last_seen)")
     con.commit()
     return con
+
+
+# 快讯层保留多久。财联社 20 条/半小时，一天近千条，
+# 而每轮 Actions 都会把整个数据库提交进 git —— 不清理的话仓库一个月涨几百 MB。
+# 48 小时之外的快讯没有回看价值，直接删。
+TICKER_KEEP_H = 48
+
+
+def prune(con):
+    """删掉过期的快讯。只动 ticker 层，其余三层的历史都留着——
+    媒体和官方的历史将来要用来画席位曲线，删了就重建不了。"""
+    cut = (datetime.now(timezone.utc) - timedelta(hours=TICKER_KEEP_H)).isoformat()
+    n = con.execute(
+        "DELETE FROM items WHERE layer='ticker' AND COALESCE(published, first_seen) < ?",
+        (cut,)).rowcount
+    if n:
+        con.commit()
+        con.execute("VACUUM")   # 真正回收磁盘空间，否则文件大小不降
+    return n
 
 
 def item_id(source_id, url, title):
@@ -413,6 +432,9 @@ def cmd_run(with_x=True):
             print(f"  {'X':<16}抓 {len(rows):>2}  新 {n:>2}  ≈ ${len(rows) * 0.005:.2f}")
         except Exception as e:
             print(f"  跳过 X: {e}")
+    gone = prune(con)
+    if gone:
+        print(f"  {'清理':<16}删除 {gone} 条过期快讯")
     print(f"\n快照 {snapshot}，新增 {total} 条")
     con.close()
 
