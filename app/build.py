@@ -48,6 +48,9 @@ VOICE_WINDOW_H  = 24 * 7   # 观点：周更的 newsletter，一周窗口
 MEDIA_WINDOW_H  = 48       # 媒体：48 小时上限，过期的头条只是噪音
 TICKER_WINDOW_H = 0.5      # 快讯：30 分钟，它的全部价值就是"刚刚"
 
+# 共识热度的时间半衰期（小时）。调小 = 更偏向刚发生的，调大 = 更偏向报的家数多的。
+HALF_LIFE_H = 8.0
+
 REGION = {
     "CN":    dict(label="中", color="#E0524A"),
     "US":    dict(label="美", color="#5B9DDB"),
@@ -396,18 +399,26 @@ def hours_ago(it):
 
 
 def heat(group):
-    """共识热度 = 家数 × 时间衰减。
+    """共识热度 = 每一家按自己的新鲜度单独计分，然后相加。
 
-    只按家数排序有个问题：一条积累了 6 家的昨日新闻，会永远压过今天
-    刚起来的 3 家新新闻，最大那张卡能霸占头位整整 48 小时。
-    这跟"有时效"直接冲突。
+    之前写的是 n家 × 衰减(最新那条的年龄) —— 错在 min()：
+    只要簇里有一条是新的，整个簇就被当成新的。七条隔夜的加一条今天的，
+    年龄算成 1 小时，热度按 8 家满打满算，于是昨天的大新闻赖着不走。
 
-    衰减用半衰期 18 小时：昨天的 6 家 ≈ 今天的 3 家，两者才有得比。
-    要的不是"哪件事报的人最多"，是"哪件事正在变热"。
+    改成每家单独算：昨天报的那几家贡献很小，今天还在跟的才有分量。
+    这样"8 家报过但只剩 1 家还在跟"和"3 家今天同时在跟"能区分开——
+    后者才是正在变热的东西。
+
+    半衰期见 HALF_LIFE_H。18 小时试过，太长 —— 七家隔夜的加起来仍然压过
+    三家今天的。8 小时下昨晚那批各贡献约 0.18，让位给今天正在跟的。
     """
-    n = len({i["source_id"] for i in group})
-    age = min(hours_ago(i) for i in group)
-    return n * (0.5 ** (age / 18.0))
+    latest = {}
+    for i in group:
+        sid = i["source_id"]
+        a = hours_ago(i)
+        if sid not in latest or a < latest[sid]:
+            latest[sid] = a
+    return sum(0.5 ** (a / HALF_LIFE_H) for a in latest.values())
 
 
 def _neg_time(it):
