@@ -360,6 +360,15 @@ def seat_bar(present):
     return '<div class="seats">' + "".join(c) + "</div>"
 
 
+def age_tag(it):
+    """超过 12 小时就标出来。你得能一眼看出这是新的还是昨天的。"""
+    h = hours_ago(it)
+    if h < 12:
+        return ""
+    return f'<span class="age">{int(h)}h</span>' if h < 48 else \
+           f'<span class="age">{int(h // 24)} 天前</span>'
+
+
 def pw_tag(source_id):
     m = PAYWALL.get(source_id)
     return f'<span class="tag pw">{PW_LABEL[m]}</span>' if m else ""
@@ -368,6 +377,32 @@ def pw_tag(source_id):
 def zh_of(it):
     """有译文用译文，没有就退回原文——绝不留空，也绝不假装翻过。"""
     return it.get("title_zh") or it["title"]
+
+
+def hours_ago(it):
+    """这条离现在多少小时。"""
+    try:
+        d = datetime.fromisoformat(it.get("first_seen"))
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - d).total_seconds() / 3600
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def heat(group):
+    """共识热度 = 家数 × 时间衰减。
+
+    只按家数排序有个问题：一条积累了 6 家的昨日新闻，会永远压过今天
+    刚起来的 3 家新新闻，最大那张卡能霸占头位整整 48 小时。
+    这跟"有时效"直接冲突。
+
+    衰减用半衰期 18 小时：昨天的 6 家 ≈ 今天的 3 家，两者才有得比。
+    要的不是"哪件事报的人最多"，是"哪件事正在变热"。
+    """
+    n = len({i["source_id"] for i in group})
+    age = min(hours_ago(i) for i in group)
+    return n * (0.5 ** (age / 18.0))
 
 
 def _neg_time(it):
@@ -384,9 +419,7 @@ def render_media(items):
     groups = cluster(items)
     consensus = [g for g in groups if len({i["source_id"] for i in g}) >= 2]
     # 同样家数的，新的排前面
-    consensus.sort(key=lambda g: (-len({i["source_id"] for i in g}),
-                                  min(i["rank"] for i in g),
-                                  _neg_time(max(g, key=lambda i: i.get("last_seen") or ""))))
+    consensus.sort(key=lambda g: (-heat(g), min(i["rank"] for i in g)))
     consensus = consensus[:MEDIA_SLOTS]
 
     # 补位规则：每家最多补一条，按它在自己源里的位置排（越靠前越像头条）。
@@ -421,7 +454,7 @@ def render_media(items):
               f'{esc(zh_of(lead))}</a></p>'
             + f'<p class="orig">{esc(lead["title"])}</p>' + seat_bar(ids)
             + (f'<ul class="alt">{alt}</ul>' if alt else "")
-            + f'<div class="foot"><span>{esc(lead["source_name"])}</span>'
+            + f'<div class="foot"><span>{esc(lead["source_name"])}{age_tag(lead)}</span>'
               f'<a href="{esc(lead["url"])}" target="_blank" rel="noopener">查看原文 ↗</a></div>'
             + '</article>')
 
@@ -434,7 +467,7 @@ def render_media(items):
             + f'<p class="zh"><a href="{esc(it["url"])}" target="_blank" rel="noopener">'
               f'{esc(zh_of(it))}</a></p>'
             + f'<p class="orig">{esc(it["title"])}</p>' + seat_bar({it["source_id"]})
-            + f'<div class="foot"><span>{esc(it["source_name"])}</span>'
+            + f'<div class="foot"><span>{esc(it["source_name"])}{age_tag(it)}</span>'
               f'<a href="{esc(it["url"])}" target="_blank" rel="noopener">查看原文 ↗</a></div>'
             + '</article>')
 
