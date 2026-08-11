@@ -275,6 +275,11 @@ section+section{margin-top:44px}
   padding-left:9px}
 .alt li{font-size:11.5px;color:var(--dim);padding:1px 0}
 .alt .s{font-family:var(--mono);font-size:9px;color:var(--faint);margin-right:6px}
+/* 时间是这张卡上第二重要的东西，仅次于标题 */
+.alt .t{font-family:var(--mono);font-size:9px;color:var(--dim);margin-right:6px;
+  min-width:31px;display:inline-block}
+.lead-t{font-family:var(--mono);font-size:10px;color:var(--dim);margin-right:7px;
+  padding:1px 4px;border:1px solid var(--line2);border-radius:2px}
 .alt a{color:inherit;text-decoration:none}
 .alt a:hover{color:var(--ink)}
 
@@ -446,10 +451,13 @@ def render_media(items):
         # 标题却纹丝不动，看起来就像系统卡住了。
         # rank 只用来在同样新的条目里挑更靠前的。
         lead = min(g, key=lambda i: (round(hours_ago(i)), i["rank"]))
+        # 其他家按时间倒序 —— 从上往下读就是这个话题的跟进顺序
+        rest = sorted([i for i in g if i is not lead], key=hours_ago)[:4]
         alt = "".join(
-            f'<li><span class="s">{esc(o["source_name"])}</span>'
+            f'<li><span class="t">{esc(local_stamp(o))}</span>'
+            f'<span class="s">{esc(o["source_name"])}</span>'
             f'<a href="{esc(o["url"])}" target="_blank" rel="noopener">{esc(zh_of(o))}</a></li>'
-            for o in [i for i in g if i is not lead][:4])
+            for o in rest)
         out.append(
             card_open(lead.get("region"), lead.get("region2"))
             + f'<div class="tags"><span class="tag hits">{len(ids)}/{len(SEATS)} 家</span>'
@@ -457,7 +465,8 @@ def render_media(items):
             + pw_tag(lead["source_id"]) + '</div>'
             + f'<p class="zh"><a href="{esc(lead["url"])}" target="_blank" rel="noopener">'
               f'{esc(zh_of(lead))}</a></p>'
-            + f'<p class="orig">{esc(lead["title"])}</p>' + seat_bar(ids)
+            + f'<p class="orig"><span class="lead-t">{esc(local_stamp(lead))}</span>'
+              f'{esc(lead["title"])}</p>' + seat_bar(ids)
             + (f'<ul class="alt">{alt}</ul>' if alt else "")
             + f'<div class="foot"><span>{esc(lead["source_name"])}{age_tag(lead)}</span>'
               f'<a href="{esc(lead["url"])}" target="_blank" rel="noopener">查看原文 ↗</a></div>'
@@ -471,7 +480,8 @@ def render_media(items):
             + pw_tag(it["source_id"]) + '</div>'
             + f'<p class="zh"><a href="{esc(it["url"])}" target="_blank" rel="noopener">'
               f'{esc(zh_of(it))}</a></p>'
-            + f'<p class="orig">{esc(it["title"])}</p>' + seat_bar({it["source_id"]})
+            + f'<p class="orig"><span class="lead-t">{esc(local_stamp(it))}</span>'
+              f'{esc(it["title"])}</p>' + seat_bar({it["source_id"]})
             + f'<div class="foot"><span>{esc(it["source_name"])}{age_tag(it)}</span>'
               f'<a href="{esc(it["url"])}" target="_blank" rel="noopener">查看原文 ↗</a></div>'
             + '</article>')
@@ -534,6 +544,33 @@ def render_official(items):
                        f'<p class="zh">暂无</p>'
                        f'<p class="orig">这一格没有可用信源，不用其他来源顶替</p></article>')
     return f'<div class="grid">{"".join(out)}</div>'
+
+
+def local_stamp(it):
+    """条目的发布时刻，本地时区。今天的只给 HH:MM，更早的带上日期。
+
+    这是卡片上最重要的一个数字：同一话题各家跟进的时间顺序，
+    就是讨论方向变化的轨迹。谁先起的头、隔多久有人接、
+    最新一条是什么时候——这些比"几家在报"更能说明事情往哪走。
+    """
+    iso = it.get("published") or it.get("first_seen") or ""
+    try:
+        d = datetime.fromisoformat(iso)
+    except ValueError:
+        d = None
+        for fmt in ("%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%d"):
+            try:
+                d = datetime.strptime(iso.strip(), fmt)
+                break
+            except ValueError:
+                continue
+        if d is None:
+            return ""
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    d = d.astimezone(LOCAL_TZ)
+    today = datetime.now(LOCAL_TZ).date()
+    return d.strftime("%H:%M") if d.date() == today else d.strftime("%m-%d %H:%M")
 
 
 def local_hm(iso):
