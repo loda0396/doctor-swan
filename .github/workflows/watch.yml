@@ -26,16 +26,18 @@ jobs:
 
       - run: pip install --quiet feedparser beautifulsoup4
 
-      - name: 采集 · 翻译 · 生成
+      - name: 采集 · 生成
         working-directory: app
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           # 加 || true：某个源挂掉不该让整轮失败。
           # 单源的失败在日志里看得到，但页面该照常出。
           python collect.py run --no-x || true
-          python enrich.py || true
           python build.py --hours 3
+          # enrich.py（调模型做翻译和地区标注）2026-10 从流程里摘掉了。
+          # 它从 9 月 17 日起就一直静默失败，积压了两千多条没分类的条目——
+          # || true 让它失败也不中断，所以这事半个月没人发现。
+          # 现在标题显示原文，地区改由 regions.py 的关键词规则在渲染时算，
+          # 不需要 API key，也不需要回填：旧条目下次生成就有颜色。
 
       - name: 发布
         run: |

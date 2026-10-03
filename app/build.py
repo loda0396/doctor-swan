@@ -21,6 +21,8 @@ from datetime import datetime, timezone, timedelta
 
 from zoneinfo import ZoneInfo
 
+import regions
+
 from sources import MEDIA, VOICES, OFFICIAL, TICKER
 
 # 页面上所有时间都按这个时区显示。数据库里一律存 UTC，只在渲染时换算。
@@ -46,7 +48,11 @@ LIVE_IDS = ({m["id"] for m in MEDIA} | {o["id"] for o in OFFICIAL}
 # 四层的时间尺度完全不同，用同一个窗口是错的：
 VOICE_WINDOW_H  = 24 * 7   # 观点：周更的 newsletter，一周窗口
 MEDIA_WINDOW_H  = 48       # 媒体：48 小时上限，过期的头条只是噪音
-TICKER_WINDOW_H = 0.5      # 快讯：30 分钟，它的全部价值就是"刚刚"
+# 快讯窗口。原来是 0.5 小时——那是按"每半小时采一次"定的，
+# 但 GitHub 对免费公开仓库的定时任务限流严重，实测一天只跑 4-6 次、
+# 间隔三到六小时。窗口比采集间隔还短，这一栏就永远只剩零星一两条。
+# 跟实际节奏对齐：6 小时。哪天采集频率真上去了再调回来。
+TICKER_WINDOW_H = 6
 
 # 共识热度的时间半衰期（小时）。调小 = 更偏向刚发生的，调大 = 更偏向报的家数多的。
 HALF_LIFE_H = 8.0
@@ -152,7 +158,18 @@ def load(con, layer, hours):
     cur = con.execute(q + " ORDER BY first_seen DESC, rank ASC", args)
     names = [d[0] for d in cur.description]
     rows = [dict(zip(names, r)) for r in cur.fetchall()]
-    return [r for r in rows if r["source_id"] in LIVE_IDS]
+    rows = [r for r in rows if r["source_id"] in LIVE_IDS]
+
+    # 地区在这里当场算，不读库里那一列。
+    #
+    # 原来 region 是 enrich.py 调模型写进库的，2026-10 停掉 API 之后改成
+    # regions.py 的关键词规则。放在渲染时算有三个好处：
+    #   · 不用迁移、不用回填 —— 积压的两千多条当场就有颜色
+    #   · 全库一套标准，不会前半截是模型标的、后半截是规则标的
+    #   · 改词表立刻生效，不必重跑整个库
+    for r in rows:
+        r["region"], r["region2"] = regions.classify(r["title"], r["source_id"])
+    return rows
 
 
 def when(it):
@@ -649,7 +666,8 @@ def build(db_path=DB, hours=24, out=OUT):
     con.close()
     now = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M")
     live = len({m["source_id"] for m in media})
-    todo = sum(1 for i in media + official + voices if not i.get("region"))
+    # 地区现在是规则当场算的，不存在"还没分类"的条目，这个计数退休了。
+    todo = 0
     media_html, n_con, n_solo = render_media(media)
     _q = "、".join(f"{ {'CN':'中国','US':'美国','EU':'欧洲'}[b] } {n}" for b, n in OFFICIAL_QUOTA)
     official_note = (f'<p class="note">固定 {sum(n for _, n in OFFICIAL_QUOTA)} 格，'
@@ -681,8 +699,8 @@ def build(db_path=DB, hours=24, out=OUT):
       <h1>Doctor <em>Swan</em></h1>
     </div>
   </div>
-  <span class="stamp">{now} 布鲁塞尔 · 媒体 {MEDIA_WINDOW_H}h · 快讯 {int(TICKER_WINDOW_H*60)}min · 席位 {live}/{len(SEATS)}
-    {f"· 待分类 {todo}" if todo else ""}</span>
+  <span class="stamp">{now} 布鲁塞尔 · 媒体 {MEDIA_WINDOW_H}h · 快讯 {(f"{int(TICKER_WINDOW_H*60)}min" if TICKER_WINDOW_H < 1 else f"{TICKER_WINDOW_H:g}h")} · 席位 {live}/{len(SEATS)}
+</span>
 </header>
 
 <div class="filters">
