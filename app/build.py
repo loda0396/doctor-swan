@@ -383,8 +383,15 @@ def pw_tag(source_id):
 
 
 def zh_of(it):
-    """有译文用译文，没有就退回原文——绝不留空，也绝不假装翻过。"""
-    return it.get("title_zh") or it["title"]
+    """标题一律用原文。
+
+    2026-10 去掉了机器翻译那一环。函数名留着不改，是因为它有七个调用点，
+    改名只是制造一次无谓的全文替换——这里是唯一决定"标题显示什么"的地方。
+
+    老数据的 title_zh 还在库里，但不再读；官方和观点栏那两处
+    `if zh_of(it) != it["title"]` 的判断因此恒为假，重复的原文行会自动消失。
+    """
+    return it["title"]
 
 
 def hours_ago(it):
@@ -476,8 +483,10 @@ def render_media(items):
             + pw_tag(lead["source_id"]) + '</div>'
             + f'<p class="zh"><a href="{esc(lead["url"])}" target="_blank" rel="noopener">'
               f'{esc(zh_of(lead))}</a></p>'
-            + f'<p class="orig"><span class="lead-t">{esc(local_stamp(lead))}</span>'
-              f'{esc(lead["title"])}</p>' + seat_bar(ids)
+            # 标题现在就是原文，这里再印一遍就是重复。只留时间戳——
+            # 那是看同一话题往哪走的关键，比标题本身更该留着。
+            + f'<p class="orig"><span class="lead-t">{esc(local_stamp(lead))}</span></p>'
+            + seat_bar(ids)
             + (f'<ul class="alt">{alt}</ul>' if alt else "")
             + f'<div class="foot"><span>{esc(lead["source_name"])}{age_tag(lead)}</span>'
               f'<a href="{esc(lead["url"])}" target="_blank" rel="noopener">查看原文 ↗</a></div>'
@@ -491,8 +500,8 @@ def render_media(items):
             + pw_tag(it["source_id"]) + '</div>'
             + f'<p class="zh"><a href="{esc(it["url"])}" target="_blank" rel="noopener">'
               f'{esc(zh_of(it))}</a></p>'
-            + f'<p class="orig"><span class="lead-t">{esc(local_stamp(it))}</span>'
-              f'{esc(it["title"])}</p>' + seat_bar({it["source_id"]})
+            + f'<p class="orig"><span class="lead-t">{esc(local_stamp(it))}</span></p>'
+            + seat_bar({it["source_id"]})
             + f'<div class="foot"><span>{esc(it["source_name"])}{age_tag(it)}</span>'
               f'<a href="{esc(it["url"])}" target="_blank" rel="noopener">查看原文 ↗</a></div>'
             + '</article>')
@@ -640,7 +649,7 @@ def build(db_path=DB, hours=24, out=OUT):
     con.close()
     now = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M")
     live = len({m["source_id"] for m in media})
-    todo = sum(1 for i in media + official + voices if not i.get("title_zh"))
+    todo = sum(1 for i in media + official + voices if not i.get("region"))
     media_html, n_con, n_solo = render_media(media)
     _q = "、".join(f"{ {'CN':'中国','US':'美国','EU':'欧洲'}[b] } {n}" for b, n in OFFICIAL_QUOTA)
     official_note = (f'<p class="note">固定 {sum(n for _, n in OFFICIAL_QUOTA)} 格，'
@@ -673,7 +682,7 @@ def build(db_path=DB, hours=24, out=OUT):
     </div>
   </div>
   <span class="stamp">{now} 布鲁塞尔 · 媒体 {MEDIA_WINDOW_H}h · 快讯 {int(TICKER_WINDOW_H*60)}min · 席位 {live}/{len(SEATS)}
-    {f"· 待译 {todo}" if todo else ""}</span>
+    {f"· 待分类 {todo}" if todo else ""}</span>
 </header>
 
 <div class="filters">

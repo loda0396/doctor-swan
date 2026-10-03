@@ -1,23 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-加工层。把原始条目变成可读的：直译中文标题 + 地区归属。
+加工层。给每条新闻判断**内容涉及哪个地区**。只做这一件事。
+
+曾经这里还负责把标题直译成中文，2026-10 去掉了：标题展示原文，
+译文这一环不再需要。顺带解决了一个长期的毛病——以前批量失败多半是
+译文里混进英文引号把 JSON 撑破了，现在输出里没有自由文本，不会再有。
+
+去掉翻译但**必须保留分类**：地区着色（中红/美蓝/欧绿/其他灰）和顶部
+的地区筛选全靠 region 字段，它跟翻译本来是同一次调用做的，
+一起删掉的话整个配色体系会跟着消失。
 
     export ANTHROPIC_API_KEY=sk-ant-xxxx
     python3 enrich.py            # 处理所有还没加工的条目
     python3 enrich.py --dry      # 只看要处理多少条、大概多少钱，不调用
-
-规矩（已经写进 prompt，别改松了）：
-  · 只直译，不概括、不改写、不加评价、不加背景
-  · 专有名词按通行译法；拿不准的人名保留原文
-  · 原标题永远保留，卡片上一直挂着，点进去是原文
 
 地区判断的是**内容涉及谁**，不是**谁报的**。
 BBC 报中美贸易战 → region=CN, region2=US，跟 BBC 是英国媒体无关。
 既不中也不美也不欧的（中东、乌克兰、非洲……）一律 OTHER，显示成灰色。
 硬把它们塞进红蓝绿里，比不上色更糟。
 
-成本：Haiku，一次 20 条，每条大约 0.0001 美元量级。
-一天 100 条新增，一个月不到 1 块钱。真正贵的是 X，不是这里。
+成本：比带翻译时更低——输出从「一句译文 + 两个标签」缩到只剩两个标签，
+输出 token 降一个量级。一天几百条，一个月几毛钱。
 """
 
 import os
@@ -30,30 +33,24 @@ import urllib.request
 
 DB = "watch.db"
 API = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-haiku-4-5-20251001"   # 标题直译够用。要更稳可换 claude-sonnet-4-6
-BATCH = 20
+MODEL = "claude-haiku-4-5-20251001"   # 判断地区够用
+BATCH = 40   # 不再输出译文，每条的输出变得很短，一批可以塞更多
 
-SYSTEM = """你是新闻监测系统的翻译与标注模块。给你一批新闻标题，逐条处理。
+SYSTEM = """你是新闻监测系统的地区标注模块。给你一批新闻标题，逐条判断它涉及哪个地区。
 
 对每条输出：
-1. zh —— 标题的中文直译。严格直译：
-   - 不概括、不改写、不润色、不加背景、不加评价
-   - 保留原句的语序和信息量，原文没说的一个字都不许加
-   - 专有名词用通行译法；拿不准的人名、机构名保留原文不译
-   - 原文本身是中文的，原样返回
-2. region —— 这条新闻**内容涉及**的主要地区，四选一：
+1. region —— 这条新闻**内容涉及**的主要地区，四选一：
    CN（中国）US（美国）EU（欧洲，含英国及欧洲国家）OTHER（其他一切）
    判断依据是新闻讲的是谁，不是谁报道的。
-3. region2 —— 次要涉及地区，同样四选一。只涉及一个地区时填 null。
+   BBC 报中美贸易战 → CN，跟 BBC 是英国媒体无关。
+2. region2 —— 次要涉及地区，同样四选一。只涉及一个地区时填 null。
    中美、中欧、美欧这类双边新闻必须填全两个。
 
-只返回 JSON 数组，不要 markdown 代码块，不要任何解释。
-格式：[{"i":0,"zh":"...","region":"CN","region2":"US"}, ...]
+中东、乌克兰、非洲、拉美这些既不中也不美也不欧的，一律 OTHER。
+硬塞进红蓝绿里比不上色更糟——OTHER 显示成灰色，那是诚实的。
 
-JSON 转义规则（很重要，之前在这里出过错）：
-- zh 字段里如果要用引号，一律用中文引号 「」或""，绝不要用英文双引号 "
-- 原标题里的英文单双引号，译文中改成中文引号
-- 不要在字符串里放换行"""
+只返回 JSON 数组，不要 markdown 代码块，不要任何解释，不要翻译标题。
+格式：[{"i":0,"region":"CN","region2":"US"}, ...]"""
 
 
 def check_key():
@@ -95,8 +92,8 @@ def call(titles):
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # 整块解析失败，通常是某一条的译文里混了没转义的引号。
-        # 逐个对象抢救——坏掉一条不该让同批另外 19 条陪葬。
+        # 整块解析失败时逐个对象抢救。去掉译文后输出里没有自由文本，
+        # 这条路基本不会再走到，但留着不碍事。
         out = []
         for m in re.finditer(r"\{[^{}]*\}", text):
             try:
@@ -125,7 +122,7 @@ def main(dry=False):
     migrate(con)
     rows = con.execute(
         "SELECT id, title FROM items WHERE enriched IS NULL OR enriched = 0").fetchall()
-    print(f"待加工 {len(rows)} 条，{(len(rows) + BATCH - 1) // BATCH} 次调用")
+    print(f"待分类 {len(rows)} 条，{(len(rows) + BATCH - 1) // BATCH} 次调用")
     if dry or not rows:
         return
 
@@ -144,14 +141,16 @@ def main(dry=False):
                 continue
             r2 = r.get("region2")
             r2 = None if r2 in ("null", "", "NONE") else r2
+            # title_zh 这一列留着不动：老数据里的译文还在，只是不再写新的，
+            # 前端也不再读它。要彻底清掉就单独跑一次 UPDATE，不急。
             con.execute(
-                "UPDATE items SET title_zh=?, region=?, region2=?, enriched=1 WHERE id=?",
-                (r.get("zh"), r.get("region") or "OTHER", r2, chunk[i][0]))
+                "UPDATE items SET region=?, region2=?, enriched=1 WHERE id=?",
+                (r.get("region") or "OTHER", r2, chunk[i][0]))
             done += 1
         con.commit()
         print(f"  批 {k // BATCH + 1}/{(len(rows) + BATCH - 1) // BATCH} 完成")
 
-    print(f"\n加工完成 {done}/{len(rows)} 条")
+    print(f"\n分类完成 {done}/{len(rows)} 条")
     # 没成功的下次还会被捞出来重试，不会丢
     con.close()
 
